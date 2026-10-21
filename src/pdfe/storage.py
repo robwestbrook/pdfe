@@ -44,15 +44,14 @@ class Storage:
         return self._revision_path(file_id, number).read_bytes()
 
     def add_revision(self, file_id: str, data: bytes) -> int:
-        with self._lock_for(file_id):
-            with Session(self.engine) as session:
-                latest = session.scalar(
-                    select(func.max(Revision.number)).where(Revision.file_id == file_id)
-                )
-                number = (latest or 0) + 1
-                _write_atomic(self._revision_path(file_id, number), data)
-                session.add(Revision(file_id=file_id, number=number))
-                session.commit()
+        with self._lock_for(file_id), Session(self.engine) as session:
+            latest = session.scalar(
+                select(func.max(Revision.number)).where(Revision.file_id == file_id)
+            )
+            number = (latest or 0) + 1
+            _write_atomic(self._revision_path(file_id, number), data)
+            session.add(Revision(file_id=file_id, number=number))
+            session.commit()
         return number
 
     def latest_number(self, file_id: str) -> int:

@@ -1,6 +1,6 @@
 import pytest
-
 from pdf_helpers import block_texts_without
+
 from pdfe.images import list_images
 from pdfe.text import list_blocks, replace_block
 

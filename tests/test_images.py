@@ -1,7 +1,13 @@
-import pytest
 
 from pdf_helpers import page_size
-from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
+
+from pdfe.images import (
+    delete_image,
+    list_images,
+    move_image,
+    replace_image,
+    resize_image,
+)
 
 
 def test_list_images_reports_bbox(pdf_with_image):

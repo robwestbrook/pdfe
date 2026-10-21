@@ -12,7 +12,13 @@ from pdfe import pages
 from pdfe.create import add_image, add_page, add_text, new_document
 from pdfe.db import make_engine
 from pdfe.fonts import resolve_font
-from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
+from pdfe.images import (
+    delete_image,
+    list_images,
+    move_image,
+    replace_image,
+    resize_image,
+)
 from pdfe.storage import Storage, check_pdf
 from pdfe.text import list_blocks, replace_block
 
@@ -138,15 +144,15 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     @app.post("/api/files/{file_id}/pages/{n}/images/{xref}", status_code=201)
     def image_op(file_id: str, n: int, xref: int, body: ImageOpBody):
         if body.op == "move":
-            operation = lambda data: move_image(data, n, xref, body.dx, body.dy)  # noqa: E731
+            operation = lambda data: move_image(data, n, xref, body.dx, body.dy)
         elif body.op == "resize":
             if body.width is None or body.height is None:
                 raise HTTPException(status_code=400, detail="resize needs width and height")
-            operation = lambda data: resize_image(  # noqa: E731
+            operation = lambda data: resize_image(
                 data, n, xref, body.width, body.height
             )
         else:
-            operation = lambda data: delete_image(data, n, xref)  # noqa: E731
+            operation = lambda data: delete_image(data, n, xref)
         return edit(file_id, operation)
 
     @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/replace", status_code=201)
