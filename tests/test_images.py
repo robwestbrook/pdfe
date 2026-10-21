@@ -71,3 +71,12 @@ def test_image_routes_list_then_move(storage, pdf_with_image):
     assert r.status_code == 201
     moved = client.get(f"/api/files/{fid}/pages/0/images").json()
     assert abs((moved[0]["bbox"][0] - listed[0]["bbox"][0]) - 30) < 0.5
+
+
+def test_move_on_rotated_page_moves_along_displayed_x(pdf_with_image_rotated_90):
+    # Review Focus 4: a move lands where the user asked, in displayed coordinates
+    before = list_images(pdf_with_image_rotated_90, 0)[0]
+    out = move_image(pdf_with_image_rotated_90, 0, before.xref, dx=40, dy=0)
+    after = list_images(out, 0)[0]
+    assert abs((after.bbox[0] - before.bbox[0]) - 40) < 0.5
+    assert abs(after.bbox[1] - before.bbox[1]) < 0.5

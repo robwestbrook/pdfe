@@ -1,6 +1,7 @@
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import pymupdf
@@ -44,7 +45,20 @@ class Storage:
         return self._revision_path(file_id, number).read_bytes()
 
     def add_revision(self, file_id: str, data: bytes) -> int:
-        with self._lock_for(file_id), Session(self.engine) as session:
+        with self._lock_for(file_id):
+            return self._commit(file_id, data)
+
+    def edit(self, file_id: str, operation: Callable[[bytes], bytes]) -> int:
+        """Apply operation to the latest revision and save the result as a new one.
+
+        The read, the operation, and the save happen under one lock, so two
+        overlapping edits cannot both start from the same base revision.
+        """
+        with self._lock_for(file_id):
+            return self._commit(file_id, operation(self.latest_bytes(file_id)))
+
+    def _commit(self, file_id: str, data: bytes) -> int:
+        with Session(self.engine) as session:
             latest = session.scalar(
                 select(func.max(Revision.number)).where(Revision.file_id == file_id)
             )
@@ -81,6 +95,6 @@ def check_pdf(data: bytes) -> None:
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_bytes(data)
     os.replace(tmp, path)

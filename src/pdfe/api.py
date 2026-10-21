@@ -77,10 +77,9 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     def edit(file_id: str, operation: Callable[[bytes], bytes]) -> dict:
         require(file_id)
         try:
-            data = operation(storage.latest_bytes(file_id))
+            return {"revision": storage.edit(file_id, operation)}
         except (ValueError, IndexError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"revision": storage.add_revision(file_id, data)}
 
     @app.post("/api/files", status_code=201)
     async def upload(file: UploadFile):

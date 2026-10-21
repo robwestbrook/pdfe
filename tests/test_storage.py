@@ -31,3 +31,23 @@ def test_two_saves_get_distinct_revisions(storage, sample_pdf_bytes):
     with ThreadPoolExecutor(max_workers=8) as pool:
         numbers = list(pool.map(lambda i: storage.add_revision(fid, f"r{i}".encode()), range(20)))
     assert sorted(numbers) == list(range(2, 22))
+
+
+def test_concurrent_edits_are_not_lost(storage, sample_pdf_bytes):
+    # Review Focus 5: two edits that overlap must both survive
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    fid = storage.save_upload(sample_pdf_bytes, "a.pdf")
+
+    def append_marker(i):
+        def operation(data):
+            time.sleep(0.005)
+            return data + f"|{i}".encode()
+
+        storage.edit(fid, operation)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(append_marker, range(20)))
+    latest = storage.latest_bytes(fid)
+    assert all(f"|{i}".encode() in latest for i in range(20))
