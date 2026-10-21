@@ -3,11 +3,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from pdfe import pages
+from pdfe.create import add_image, add_page, add_text, new_document
 from pdfe.db import make_engine
 from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
 from pdfe.storage import Storage, check_pdf
@@ -30,6 +31,15 @@ class RotateBody(BaseModel):
 class TextBody(BaseModel):
     text: str
     width: float | None = None
+
+
+class TextAddBody(BaseModel):
+    text: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    size: float = 11
 
 
 class ImageOpBody(BaseModel):
@@ -139,6 +149,34 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     async def image_replace(file_id: str, n: int, xref: int, file: UploadFile):
         png = await file.read()
         return edit(file_id, lambda data: replace_image(data, n, xref, png))
+
+    @app.post("/api/documents", status_code=201)
+    def create_document():
+        file_id = storage.save_upload(new_document(), "Untitled.pdf")
+        return {"id": file_id, "name": "Untitled.pdf", "revision": 1}
+
+    @app.post("/api/files/{file_id}/pages", status_code=201)
+    def add_blank_page(file_id: str):
+        return edit(file_id, add_page)
+
+    @app.post("/api/files/{file_id}/pages/{n}/texts", status_code=201)
+    def add_text_box(file_id: str, n: int, body: TextAddBody):
+        rect = (body.x0, body.y0, body.x1, body.y1)
+        return edit(file_id, lambda data: add_text(data, n, rect, body.text, body.size))
+
+    @app.post("/api/files/{file_id}/pages/{n}/pictures", status_code=201)
+    async def add_picture(
+        file_id: str,
+        n: int,
+        file: UploadFile,
+        x0: float = Form(),
+        y0: float = Form(),
+        x1: float = Form(),
+        y1: float = Form(),
+    ):
+        png = await file.read()
+        rect = (x0, y0, x1, y1)
+        return edit(file_id, lambda data: add_image(data, n, rect, png))
 
     @app.get("/api/files/{file_id}/pages/{n}/text")
     def text(file_id: str, n: int):
