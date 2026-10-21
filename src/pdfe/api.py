@@ -1,10 +1,26 @@
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel
 
+from pdfe import pages
 from pdfe.db import make_engine
 from pdfe.storage import Storage, check_pdf
+
+
+class ReorderBody(BaseModel):
+    order: list[int]
+
+
+class DeleteBody(BaseModel):
+    indexes: list[int]
+
+
+class RotateBody(BaseModel):
+    index: int
+    degrees: int
 
 
 def create_app(storage: Storage | None = None) -> FastAPI:
@@ -20,6 +36,14 @@ def create_app(storage: Storage | None = None) -> FastAPI:
         if record is None:
             raise HTTPException(status_code=404, detail="no such file")
         return record
+
+    def edit(file_id: str, operation: Callable[[bytes], bytes]) -> dict:
+        require(file_id)
+        try:
+            data = operation(storage.latest_bytes(file_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"revision": storage.add_revision(file_id, data)}
 
     @app.post("/api/files", status_code=201)
     async def upload(file: UploadFile):
@@ -58,5 +82,17 @@ def create_app(storage: Storage | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"revision": storage.add_revision(file_id, data)}
+
+    @app.post("/api/files/{file_id}/pages/reorder", status_code=201)
+    def reorder_pages(file_id: str, body: ReorderBody):
+        return edit(file_id, lambda data: pages.reorder(data, body.order))
+
+    @app.post("/api/files/{file_id}/pages/delete", status_code=201)
+    def delete_pages(file_id: str, body: DeleteBody):
+        return edit(file_id, lambda data: pages.delete_pages(data, body.indexes))
+
+    @app.post("/api/files/{file_id}/pages/rotate", status_code=201)
+    def rotate_page(file_id: str, body: RotateBody):
+        return edit(file_id, lambda data: pages.rotate_page(data, body.index, body.degrees))
 
     return app

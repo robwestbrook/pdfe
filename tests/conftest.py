@@ -33,3 +33,14 @@ def storage(tmp_path) -> Storage:
     root = tmp_path / "data"
     root.mkdir()
     return Storage(root, make_engine(f"sqlite:///{root / 'pdfe.db'}"))
+
+
+@pytest.fixture
+def three_page_pdf() -> bytes:
+    doc = pymupdf.open()
+    for i in range(1, 4):
+        doc.new_page().insert_text((72, 72), f"page {i}")
+    data = doc.tobytes()
+    doc.close()
+    return data
+
