@@ -51,3 +51,31 @@ def test_concurrent_edits_are_not_lost(storage, sample_pdf_bytes):
         list(pool.map(append_marker, range(20)))
     latest = storage.latest_bytes(fid)
     assert all(f"|{i}".encode() in latest for i in range(20))
+
+
+def test_files_from_the_previous_layout_still_open(tmp_path, sample_pdf_bytes):
+    # Existing files keep their history when the storage layout changes
+    import sqlite3
+
+    from pdfe.db import make_engine
+    from pdfe.storage import Storage
+
+    root = tmp_path / "data"
+    folder = root / "files" / "abc"
+    folder.mkdir(parents=True)
+    (folder / "original.pdf").write_bytes(sample_pdf_bytes)
+    (folder / "rev-1.pdf").write_bytes(sample_pdf_bytes)
+    (folder / "rev-2.pdf").write_bytes(b"second revision bytes")
+    db = root / "pdfe.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE files (id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL)")
+    conn.execute("CREATE TABLE revisions (id INTEGER PRIMARY KEY, file_id VARCHAR, number INTEGER NOT NULL)")
+    conn.execute("INSERT INTO files VALUES ('abc', 'old.pdf')")
+    conn.execute("INSERT INTO revisions (file_id, number) VALUES ('abc', 1), ('abc', 2)")
+    conn.commit()
+    conn.close()
+
+    storage = Storage(root, make_engine(f"sqlite:///{db}"))
+    assert storage.revision_numbers("abc") == [1, 2]
+    assert storage.revision_bytes("abc", 2) == b"second revision bytes"
+    assert storage.original_bytes("abc") == sample_pdf_bytes

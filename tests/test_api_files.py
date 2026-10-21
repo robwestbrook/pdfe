@@ -1,12 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
+from pdf_helpers import LocalClient
 
 from pdfe.api import create_app
 
 
 @pytest.fixture
 def client(storage):
-    return TestClient(create_app(storage))
+    return LocalClient(create_app(storage))
 
 
 def test_upload_then_download_roundtrip(client, sample_pdf_bytes):

@@ -54,11 +54,11 @@ def test_replace_image_keeps_place(pdf_with_image, png_bytes):
 
 
 def test_image_routes_list_then_move(storage, pdf_with_image):
-    from fastapi.testclient import TestClient
+    from pdf_helpers import LocalClient
 
     from pdfe.api import create_app
 
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = client.post(
         "/api/files", files={"file": ("a.pdf", pdf_with_image, "application/pdf")}
     ).json()["id"]
@@ -116,3 +116,40 @@ def test_move_keeps_an_overlapping_image(png_bytes):
     first = list_images(data, 0)[0]
     out = move_image(data, 0, first.xref, dx=0, dy=-60)
     assert len(list_images(out, 0)) == 2
+
+
+def test_listed_position_is_where_the_image_is_displayed(pdf_with_image_rotated_90):
+    # Problem 4: on a page turned 90 degrees, the listed box is where it shows on screen
+    img = list_images(pdf_with_image_rotated_90, 0)[0]
+    assert tuple(round(v) for v in img.bbox) == (692, 72, 742, 172)
+
+
+def test_move_on_rotated_page_moves_on_screen(pdf_with_image_rotated_90):
+    before = list_images(pdf_with_image_rotated_90, 0)[0]
+    out = move_image(pdf_with_image_rotated_90, 0, before.xref, dx=0, dy=40)
+    after = list_images(out, 0)[0]
+    assert abs((after.bbox[1] - before.bbox[1]) - 40) < 0.5
+    assert abs(after.bbox[0] - before.bbox[0]) < 0.5
+
+
+def test_moving_a_lower_image_keeps_the_upper_one_on_top():
+    # Problem 4: stacking order is kept, so a moved image does not cover the one above it
+    from io import BytesIO
+
+    import pymupdf
+    from PIL import Image
+
+    def png(colour):
+        buf = BytesIO()
+        Image.new("RGB", (40, 20), colour).save(buf, "PNG")
+        return buf.getvalue()
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_image(pymupdf.Rect(72, 100, 172, 150), stream=png((255, 0, 0)))  # lower, red
+    page.insert_image(pymupdf.Rect(120, 110, 220, 160), stream=png((0, 0, 255)))  # upper, blue
+    data = doc.tobytes()
+    lower = list_images(data, 0)[0]
+    out = move_image(data, 0, lower.xref, dx=5, dy=0)
+    shown = pymupdf.open(stream=out, filetype="pdf")[0].get_pixmap(clip=pymupdf.Rect(130, 120, 140, 130), dpi=72)
+    assert shown.pixel(2, 2)[:3] == (0, 0, 255)

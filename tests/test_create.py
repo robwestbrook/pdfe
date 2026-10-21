@@ -1,7 +1,6 @@
 import pymupdf
 import pytest
-from fastapi.testclient import TestClient
-from pdf_helpers import page_texts
+from pdf_helpers import LocalClient, page_texts
 
 from pdfe.api import create_app
 from pdfe.create import add_image, add_text, new_document
@@ -30,7 +29,7 @@ def test_add_image_is_listed(blank_pdf, png_bytes):
 
 
 def test_create_document_route_then_add_text(storage):
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     r = client.post("/api/documents")
     assert r.status_code == 201
     fid = r.json()["id"]
@@ -43,7 +42,7 @@ def test_create_document_route_then_add_text(storage):
 
 
 def test_picture_route_places_image(storage, png_bytes):
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = client.post("/api/documents").json()["id"]
     r = client.post(
         f"/api/files/{fid}/pages/0/pictures",
@@ -106,3 +105,36 @@ def test_add_text_touching_existing_text_is_refused(two_block_pdf):
     bottom = list_blocks(two_block_pdf, 0)[0].bbox[3]
     with pytest.raises(ValueError):
         add_text(two_block_pdf, 0, (72, bottom + 1, 300, bottom + 20), "touching note")
+
+
+def test_new_text_lands_where_drawn_on_rotated_page(blank_pdf):
+    # Problem 4: the box a user gives is in displayed coordinates, even on a turned page
+    import pymupdf
+
+    doc = pymupdf.open(stream=blank_pdf, filetype="pdf")
+    doc[0].set_rotation(90)
+    out = add_text(doc.tobytes(), 0, (100, 100, 300, 130), "turned note")
+    placed = pymupdf.open(stream=out, filetype="pdf")[0]
+    shown = pymupdf.Rect(placed.search_for("turned note")[0]) * placed.rotation_matrix
+    shown.normalize()
+    assert shown.x0 >= 99.5 and shown.y0 >= 99.5
+    assert shown.x1 <= 300.5 and shown.y1 <= 130.5
+
+
+def test_new_text_reads_across_the_screen_on_a_rotated_page(blank_pdf):
+    # Problem 4: new text on a turned page reads left to right as it is displayed
+    import pymupdf
+
+    doc = pymupdf.open(stream=blank_pdf, filetype="pdf")
+    doc[0].set_rotation(90)
+    out = add_text(doc.tobytes(), 0, (100, 100, 300, 130), "reads across")
+    placed = pymupdf.open(stream=out, filetype="pdf")[0]
+    line_dir = next(
+        line["dir"]
+        for block in placed.get_text("dict")["blocks"]
+        if block["type"] == 0
+        for line in block["lines"]
+        if "reads" in "".join(s["text"] for s in line["spans"])
+    )
+    shown = pymupdf.Point(line_dir) * placed.rotation_matrix - pymupdf.Point(0, 0) * placed.rotation_matrix
+    assert abs(shown.y) < 0.01 and shown.x > 0.99

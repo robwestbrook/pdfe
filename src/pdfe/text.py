@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pymupdf
 
+from pdfe.coords import to_displayed
 from pdfe.fonts import FontChoice, resolve_font
 
 
@@ -12,12 +13,18 @@ class TextBlock:
     text: str
     font: str
     size: float
+    rotate: int  # direction the lines run: 0, 90, 180, or 270 degrees
 
 
 def list_blocks(data: bytes, page: int) -> list[TextBlock]:
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
-        return [_describe(i, raw) for i, raw in enumerate(_text_blocks(doc[page]))]
+        pg = doc[page]
+        blocks = []
+        for i, raw in enumerate(_text_blocks(pg)):
+            described = _describe(i, raw)
+            blocks.append(replace(described, bbox=tuple(to_displayed(pg, described.bbox))))
+        return blocks
     finally:
         doc.close()
 
@@ -34,7 +41,8 @@ def replace_block(
         info = _describe(block_id, raw[block_id])
         bbox = pymupdf.Rect(info.bbox)
 
-        pg.add_redact_annot(bbox, fill=(1, 1, 1))
+        # No fill: the redaction removes the text and leaves the background drawing in place.
+        pg.add_redact_annot(bbox)
         pg.apply_redactions(
             images=pymupdf.PDF_REDACT_IMAGE_NONE,
             graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
@@ -42,8 +50,14 @@ def replace_block(
 
         choice = resolve_font(info.font, new_text)
         box_width = width if width is not None else bbox.width
-        limit = _growth_limit(pg, bbox, box_width)
-        height = _fit_height(new_text, choice, info.size, box_width, limit - bbox.y0)
+        if info.rotate in (90, 270):
+            # Rotated lines stack across the box's width, so that axis gets the same minimum.
+            box_width = max(box_width, 2 * info.size)
+        # Only text that runs across the page grows; rotated text is kept to its own box.
+        limit = _growth_limit(pg, bbox, box_width) if info.rotate == 0 else bbox.y1
+        # PyMuPDF's insert rotation runs the other way from the direction it reports.
+        insert_rotate = (360 - info.rotate) % 360
+        height = _fit_height(new_text, choice, info.size, box_width, limit - bbox.y0, insert_rotate)
         if height is None:
             raise ValueError("text does not fit, even below the block; shorten it or widen the block")
         rect = pymupdf.Rect(bbox.x0, bbox.y0, bbox.x0 + box_width, bbox.y0 + height)
@@ -53,6 +67,7 @@ def replace_block(
             fontname=choice.fontname,
             fontfile=choice.fontfile,
             fontsize=info.size,
+            rotate=insert_rotate,
         )
         return doc.tobytes()
     finally:
@@ -72,7 +87,15 @@ def _describe(block_id: int, raw: dict) -> TextBlock:
         text=text,
         font=first_span["font"],
         size=first_span["size"],
+        rotate=_direction(raw["lines"][0]["dir"]),
     )
+
+
+def _direction(dir_vector) -> int:
+    x, y = dir_vector
+    if abs(x) >= abs(y):
+        return 0 if x >= 0 else 180
+    return 90 if y >= 0 else 270
 
 
 _PAGE_MARGIN = 36
@@ -90,7 +113,7 @@ def _growth_limit(pg: pymupdf.Page, bbox: pymupdf.Rect, width: float) -> float:
 
 
 def _fit_height(
-    text: str, choice: FontChoice, size: float, width: float, max_height: float
+    text: str, choice: FontChoice, size: float, width: float, max_height: float, rotate: int
 ) -> float | None:
     """The smallest box height that holds text, or None if max_height is not enough.
 
@@ -107,6 +130,7 @@ def _fit_height(
                 fontname=choice.fontname,
                 fontfile=choice.fontfile,
                 fontsize=size,
+                rotate=rotate,
             )
             return unused >= 0
         finally:

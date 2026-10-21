@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from pdf_helpers import LocalClient
 
 from pdfe.api import create_app
 
@@ -8,7 +8,7 @@ def upload(client, data: bytes) -> str:
 
 
 def test_history_lists_every_revision(storage, sample_pdf_bytes):
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = upload(client, sample_pdf_bytes)
     client.post(f"/api/files/{fid}/pages/rotate", json={"index": 0, "degrees": 90})
     r = client.get(f"/api/files/{fid}/revisions").json()
@@ -17,7 +17,7 @@ def test_history_lists_every_revision(storage, sample_pdf_bytes):
 
 def test_revert_makes_a_new_revision_with_old_bytes(storage, sample_pdf_bytes):
     # Fix 4: going back never deletes history
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = upload(client, sample_pdf_bytes)
     client.post(f"/api/files/{fid}/pages", json={})
     assert client.get(f"/api/files/{fid}/download").content != sample_pdf_bytes
@@ -29,14 +29,14 @@ def test_revert_makes_a_new_revision_with_old_bytes(storage, sample_pdf_bytes):
 
 
 def test_revert_unknown_revision_is_404(storage, sample_pdf_bytes):
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = upload(client, sample_pdf_bytes)
     assert client.post(f"/api/files/{fid}/revert", json={"revision": 99}).status_code == 404
 
 
 def test_text_edit_reports_substitute_font(storage, two_block_pdf):
     # Fix 6: an edit that needs a substitute font says so in its response
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = upload(client, two_block_pdf)
     r = client.post(f"/api/files/{fid}/pages/0/text/0", json={"text": "café Привет"})
     assert r.status_code == 201
@@ -49,8 +49,46 @@ def test_text_edit_reports_substitute_font(storage, two_block_pdf):
 
 def test_download_reports_the_revision_it_returns(storage, sample_pdf_bytes):
     # Fix 7: the page and its revision number come from one response, so they never disagree
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = upload(client, sample_pdf_bytes)
     client.post(f"/api/files/{fid}/pages/rotate", json={"index": 0, "degrees": 90})
     r = client.get(f"/api/files/{fid}/download")
     assert r.headers["x-revision"] == "2"
+
+
+def test_revert_stores_no_new_bytes(storage, sample_pdf_bytes):
+    # Problem 5: going back to an earlier revision reuses its stored bytes
+    client = LocalClient(create_app(storage))
+    fid = upload(client, sample_pdf_bytes)
+    client.post(f"/api/files/{fid}/pages/rotate", json={"index": 0, "degrees": 90})
+    blobs = list((storage.root / "blobs").glob("*.gz"))
+    client.post(f"/api/files/{fid}/revert", json={"revision": 1})
+    assert len(list((storage.root / "blobs").glob("*.gz"))) == len(blobs)
+
+
+def test_download_names_the_file(storage, sample_pdf_bytes):
+    # Problem 8: downloads carry the file's own name
+    client = LocalClient(create_app(storage))
+    fid = upload(client, sample_pdf_bytes)
+    r = client.get(f"/api/files/{fid}/download")
+    assert 'filename="a.pdf"' in r.headers["content-disposition"]
+
+
+def test_thumbnails_are_png_and_cacheable(storage, sample_pdf_bytes):
+    # Problem 9: page previews come from the server, and a revision's previews never change
+    client = LocalClient(create_app(storage))
+    fid = upload(client, sample_pdf_bytes)
+    r = client.get(f"/api/files/{fid}/revisions/1/pages/0/thumbnail")
+    assert r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert "immutable" in r.headers["cache-control"]
+
+
+def test_oversized_upload_is_refused(storage, sample_pdf_bytes, monkeypatch):
+    # Problem 6: uploads have a size limit
+    from pdfe import api
+
+    monkeypatch.setattr(api, "MAX_UPLOAD_BYTES", 100)
+    client = LocalClient(create_app(storage))
+    r = client.post("/api/files", files={"file": ("a.pdf", sample_pdf_bytes, "application/pdf")})
+    assert r.status_code == 413

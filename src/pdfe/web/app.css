@@ -99,7 +99,7 @@ button[type="submit"], .primary { background: var(--accent); color: #fff; border
 }
 
 .thumb.active { border-color: var(--accent); color: var(--ink); }
-.thumb canvas { display: block; border: 1px solid var(--line); }
+.thumb img { display: block; border: 1px solid var(--line); }
 
 .workspace {
   display: grid;

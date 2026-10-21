@@ -1,7 +1,6 @@
 import pymupdf
 import pytest
-from fastapi.testclient import TestClient
-from pdf_helpers import page_texts
+from pdf_helpers import LocalClient, page_texts
 
 from pdfe.api import create_app
 from pdfe.pages import delete_pages, reorder, rotate_page
@@ -32,7 +31,7 @@ def test_delete_rejects_every_page(three_page_pdf):
 
 
 def test_reorder_route_creates_revision(storage, three_page_pdf):
-    client = TestClient(create_app(storage))
+    client = LocalClient(create_app(storage))
     fid = client.post(
         "/api/files", files={"file": ("a.pdf", three_page_pdf, "application/pdf")}
     ).json()["id"]

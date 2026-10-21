@@ -1,5 +1,6 @@
 import pymupdf
 
+from pdfe.coords import to_page
 from pdfe.fonts import resolve_font
 from pdfe.pictures import normalize_picture
 
@@ -34,15 +35,18 @@ def add_text(
     choice = resolve_font("Helvetica", text)
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
-        target = pymupdf.Rect(rect)
+        pg = doc[page]
+        target = to_page(pg, rect)
         if _text_overlaps(doc[page], target):
             raise ValueError("that area already has text; choose a clear spot for the new text")
-        unused = doc[page].insert_textbox(
+        # Drawn with the page's own rotation, so the text reads upright on screen.
+        unused = pg.insert_textbox(
             target,
             text,
             fontname=choice.fontname,
             fontfile=choice.fontfile,
             fontsize=size,
+            rotate=pg.rotation,
         )
         if unused < 0:
             raise ValueError("text does not fit the box; make the box larger")
@@ -60,7 +64,8 @@ def add_image(
     picture = normalize_picture(picture)
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
-        doc[page].insert_image(pymupdf.Rect(rect), stream=picture, keep_proportion=False)
+        pg = doc[page]
+        pg.insert_image(to_page(pg, rect), stream=picture, keep_proportion=False)
         return doc.tobytes()
     finally:
         doc.close()

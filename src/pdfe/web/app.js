@@ -8,13 +8,27 @@ const $ = (selector) => document.querySelector(selector);
 // Reloads run one after another, so an older render cannot overwrite a newer one.
 let refreshChain = Promise.resolve();
 
+// Every write carries a header that the server requires, so pages on other sites cannot make one.
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const method = options.method || "GET";
+  const headers = { ...(options.headers || {}) };
+  if (method !== "GET") headers["X-Pdfe"] = "1";
+  const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || response.statusText);
+    const detail = body.detail;
+    const message = typeof detail === "object" && detail ? detail.message : detail;
+    const error = new Error(message || response.statusText);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
+}
+
+// An edit names the revision it was made from. If another window has changed the file since,
+// the server refuses it and the editor reloads, so nothing is applied to the wrong content.
+function editHeaders(extra = {}) {
+  return { ...extra, "X-Base-Revision": String(state.revision) };
 }
 
 function showError(error) {
@@ -38,6 +52,11 @@ async function run(action) {
   try {
     return await action();
   } catch (error) {
+    if (error.status === 409) {
+      showError(new Error("This file changed in another window. The editor has reloaded it; try the change again."));
+      await refresh();
+      return undefined;
+    }
     showError(error);
     return undefined;
   }
@@ -59,6 +78,7 @@ async function openFile(fileId) {
   state.revision = info.revision;
   $("#file-name").textContent = info.name;
   $("#download").href = fileUrl("/download");
+  $("#download").setAttribute("download", info.name);
   $("#download").hidden = false;
   state.page = 0;
   await refresh();
@@ -66,11 +86,13 @@ async function openFile(fileId) {
 
 async function reload() {
   const response = await fetch(fileUrl("/download"));
-  state.revision = Number(response.headers.get("X-Revision"));
+  // Revision numbers only grow. A reload that began before the latest edit may finish with an
+  // older number, so keep the largest one seen.
+  state.revision = Math.max(state.revision, Number(response.headers.get("X-Revision")));
   state.pdf = await pdfjsLib.getDocument({ data: await response.arrayBuffer() }).promise;
   state.pageCount = state.pdf.numPages;
   if (state.page >= state.pageCount) state.page = 0;
-  await renderStrip();
+  renderStrip();
   await renderPage();
   await renderTools();
   await renderHistory();
@@ -81,7 +103,7 @@ async function reload() {
 async function mutate(suffix, body) {
   const result = await api(fileUrl(suffix), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: editHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(body),
   });
   state.revision = result.revision;
@@ -90,7 +112,7 @@ async function mutate(suffix, body) {
 }
 
 async function mutateForm(suffix, form) {
-  const result = await api(fileUrl(suffix), { method: "POST", body: form });
+  const result = await api(fileUrl(suffix), { method: "POST", headers: editHeaders(), body: form });
   state.revision = result.revision;
   await refresh();
   return result;
@@ -99,28 +121,27 @@ async function mutateForm(suffix, form) {
 async function revertTo(revision) {
   const result = await api(fileUrl("/revert"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: editHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ revision }),
   });
   state.revision = result.revision;
   await refresh();
 }
 
-async function renderStrip() {
+// Thumbnails come from the server, keyed by revision, so the browser keeps them and
+// never redraws a page it already has.
+function renderStrip() {
   const strip = $("#page-strip");
   strip.replaceChildren();
   for (let i = 0; i < state.pageCount; i++) {
-    const page = await state.pdf.getPage(i + 1);
-    const viewport = page.getViewport({ scale: 0.18 });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const image = document.createElement("img");
+    image.alt = `Page ${i + 1}`;
+    image.src = fileUrl(`/revisions/${state.revision}/pages/${i}/thumbnail`);
 
     const thumb = document.createElement("div");
     thumb.className = `thumb${i === state.page ? " active" : ""}`;
     thumb.draggable = true;
-    thumb.append(canvas, `${i + 1}`);
+    thumb.append(image, `${i + 1}`);
     thumb.addEventListener("click", () => run(() => selectPage(i)));
     thumb.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", `${i}`));
     thumb.addEventListener("dragover", (event) => event.preventDefault());

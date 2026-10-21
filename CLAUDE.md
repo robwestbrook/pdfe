@@ -6,7 +6,7 @@ A local web app for editing and creating PDFs. A Python FastAPI server stores fi
 
 - Install dependencies: `uv sync`
 - Run the app: `uv run pdfe` (serves http://127.0.0.1:8000)
-- Run tests: `uv run pytest -v`
+- Run tests: `uv run pytest -v`. The browser test runs when a Chromium is available: set `PDFE_CHROME` to its path, otherwise it is skipped.
 - Lint: `uv run ruff check .`
 
 ## Constraints
@@ -28,3 +28,11 @@ A local web app for editing and creating PDFs. A Python FastAPI server stores fi
 - Write the failing test before the code, as each plan task describes.
 - Commit at the end of each task, using the commit message from the plan. Commits in the plan are approved; other commits need a request.
 - Keep the spec and the plan current if a decision changes.
+
+## API rules for writes
+
+- Every write needs `X-Pdfe: 1`. Requests from other sites, or with a Host other than localhost, are refused.
+- Every edit needs `X-Base-Revision` set to the revision the edit was made from. A stale value gets 409, and a missing one gets 428.
+- Coordinates in the API are displayed coordinates (the page as it is shown, after rotation). Internally PyMuPDF uses the unrotated frame; convert with `pdfe/coords.py`.
+- Revisions are stored once per distinct content under `data/blobs/`, gzip-compressed. Older layouts are migrated on start.
+

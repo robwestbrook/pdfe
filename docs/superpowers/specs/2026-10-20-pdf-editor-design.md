@@ -84,3 +84,16 @@ Text operations (part 4) come last, because they are the hardest part.
 - Each part works on a sample PDF, with tests that check the output with PyMuPDF.
 - An original upload is byte-identical after any sequence of edits.
 - A text edit leaves text outside the edited block unchanged, verified by text extraction before and after.
+
+## Security and consistency (added after review)
+
+- The server answers only for localhost, refuses requests from other origins, and requires `X-Pdfe: 1` on writes.
+- Every edit names the revision it was made from (`X-Base-Revision`). A stale edit is refused with 409, so two windows cannot overwrite each other.
+- Uploads are limited to 100 MB, and pictures to 20 MB.
+
+## Coordinates and images (added after review)
+
+- The API uses displayed coordinates. PyMuPDF's unrotated frame is converted at the boundary.
+- Moving, resizing, and deleting an image edit only that image's drawing command, so other content and the stacking order are unchanged. A replaced picture is drawn on top of the page.
+- Text is drawn with the page's rotation, so it reads upright on screen.
+

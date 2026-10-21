@@ -12,6 +12,7 @@ dependencies = [
     "pypdf",
     "pillow",
     "wand>=0.7.2",
+    "pikepdf>=10.17.0",
 ]
 
 [project.scripts]
@@ -22,6 +23,7 @@ dev = [
     "pytest",
     "httpx",
     "ruff",
+    "playwright>=1.64.0",
 ]
 
 [build-system]
@@ -30,3 +32,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pdfe"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # Starlette's test client reports that httpx is deprecated for it. That is the library's notice, not ours.
+    "ignore:Using `httpx` with `starlette.testclient`:Warning",
+]
