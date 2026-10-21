@@ -52,6 +52,23 @@ def rewrite_page(pdf: pikepdf.Pdf, page: pikepdf.Page, edits: dict[int, list]) -
     page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))
 
 
+def add_xobject(pdf: pikepdf.Pdf, page: pikepdf.Page, xref: int, cm: Matrix) -> None:
+    """Draw the image object xref on top of the page's content, with cm as its transform."""
+    if "/Resources" not in page.obj:
+        page.obj.Resources = pikepdf.Dictionary()
+    resources = page.obj.Resources
+    if "/XObject" not in resources:
+        resources.XObject = pikepdf.Dictionary()
+    number = 1
+    while f"/PdfeImage{number}" in resources.XObject:
+        number += 1
+    name = pikepdf.Name(f"/PdfeImage{number}")
+    resources.XObject[name] = pdf.get_object((xref, 0))
+    instructions = list(pikepdf.parse_content_stream(page))
+    instructions.extend(draw_image(name, cm))
+    page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))
+
+
 def draw_image(name: pikepdf.Name, cm: Matrix) -> list:
     """Instructions that draw the image name with cm applied first, inside their own q/Q."""
     return [

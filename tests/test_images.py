@@ -153,3 +153,50 @@ def test_moving_a_lower_image_keeps_the_upper_one_on_top():
     out = move_image(data, 0, lower.xref, dx=5, dy=0)
     shown = pymupdf.open(stream=out, filetype="pdf")[0].get_pixmap(clip=pymupdf.Rect(130, 120, 140, 130), dpi=72)
     assert shown.pixel(2, 2)[:3] == (0, 0, 255)
+
+
+def test_move_image_to_another_page(pdf_with_image):
+    import pymupdf
+    from pdf_helpers import page_size
+
+    from pdfe.images import move_image_to_page
+
+    doc = pymupdf.open(stream=pdf_with_image, filetype="pdf")
+    doc.new_page()
+    data = doc.tobytes()
+    xref = list_images(data, 0)[0].xref
+    out = move_image_to_page(data, 0, xref, target=1, x=300, y=400)
+    assert list_images(out, 0) == []
+    placed = list_images(out, 1)
+    assert len(placed) == 1
+    assert abs(placed[0].bbox[0] - 300) < 0.5 and abs(placed[0].bbox[1] - 400) < 0.5
+    assert abs((placed[0].bbox[2] - placed[0].bbox[0]) - 100) < 0.5  # keeps its size
+    assert page_size(out, 1)[0] > 0
+
+
+def test_move_image_to_a_position_on_the_same_page(pdf_with_image):
+    from pdfe.images import move_image_to_page
+
+    xref = list_images(pdf_with_image, 0)[0].xref
+    out = move_image_to_page(pdf_with_image, 0, xref, target=0, x=300, y=400)
+    placed = list_images(out, 0)
+    assert len(placed) == 1
+    assert abs(placed[0].bbox[0] - 300) < 0.5 and abs(placed[0].bbox[1] - 400) < 0.5
+
+
+def test_move_to_page_route(storage, pdf_with_image):
+    from pdf_helpers import LocalClient
+
+    from pdfe.api import create_app
+
+    client = LocalClient(create_app(storage))
+    fid = client.post("/api/files", files={"file": ("a.pdf", pdf_with_image, "application/pdf")}).json()["id"]
+    client.post(f"/api/files/{fid}/pages", json={})
+    xref = client.get(f"/api/files/{fid}/pages/0/images").json()[0]["xref"]
+    r = client.post(
+        f"/api/files/{fid}/pages/0/images/{xref}/to-page",
+        json={"target": 1, "x": 300, "y": 400},
+    )
+    assert r.status_code == 201
+    assert client.get(f"/api/files/{fid}/pages/1/images").json()[0]["bbox"][0] - 300 < 0.5
+    assert client.get(f"/api/files/{fid}/pages/0/images").json() == []

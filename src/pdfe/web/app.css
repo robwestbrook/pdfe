@@ -109,7 +109,18 @@ button[type="submit"], .primary { background: var(--accent); color: #fff; border
 }
 
 .canvas-wrap { overflow: auto; }
-#page-canvas { max-width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.2); }
+#page-canvas { display: block; max-width: 100%; height: auto; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.2); }
+.page-wrap { position: relative; display: inline-block; }
+.image-overlay { position: absolute; inset: 0; }
+.image-box {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: rgb(47 95 168 / 0.08);
+  cursor: move;
+  touch-action: none;
+}
+.image-box.dragging { opacity: 0.8; }
+.thumb.drop-target { border-color: var(--accent); background: rgb(47 95 168 / 0.12); }
 
 .tool-panel {
   background: var(--panel);

@@ -18,6 +18,7 @@ from pdfe.images import (
     delete_image,
     list_images,
     move_image,
+    move_image_to_page,
     replace_image,
     resize_image,
 )
@@ -61,6 +62,12 @@ class TextAddBody(BaseModel):
     x1: float
     y1: float
     size: float = 11
+
+
+class MoveToPageBody(BaseModel):
+    target: int
+    x: float
+    y: float
 
 
 class ImageOpBody(BaseModel):
@@ -241,6 +248,10 @@ def create_app(storage: Storage | None = None) -> FastAPI:
         else:
             operation = lambda data: delete_image(data, n, xref)
         return edit(file_id, operation, base)
+
+    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/to-page", status_code=201)
+    def image_to_page(file_id: str, n: int, xref: int, body: MoveToPageBody, base: int = Depends(base_revision)):
+        return edit(file_id, lambda data: move_image_to_page(data, n, xref, body.target, body.x, body.y), base)
 
     @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/replace", status_code=201)
     async def image_replace(

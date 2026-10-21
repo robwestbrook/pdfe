@@ -42,6 +42,29 @@ def resize_image(data: bytes, page: int, xref: int, width: float, height: float)
     )
 
 
+def move_image_to_page(data: bytes, page: int, xref: int, target: int, x: float, y: float) -> bytes:
+    """Move an image so its top-left corner is at (x, y) on the target page, in displayed coordinates.
+
+    The image keeps its size. Moving within the same page is an ordinary move.
+    """
+    with _Scene(data, page, xref) as scene:
+        width, height = scene.box.width, scene.box.height
+        if target == page:
+            return _place(data, page, xref, lambda box: pymupdf.Rect(x, y, x + width, y + height), keep_shape=True)
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            if not 0 <= target < doc.page_count:
+                raise ValueError(f"no page {target}")
+            target_page = doc[target]
+            destination = to_page(target_page, pymupdf.Rect(x, y, x + width, y + height))
+            target_user = destination * ~target_page.transformation_matrix
+        finally:
+            doc.close()
+        pl.add_xobject(scene.pdf, scene.pdf.pages[target], scene.site.xref, pl.upright(target_user))
+        pl.rewrite_page(scene.pdf, scene.pdf_page, {scene.site.index: []})
+        return pl.save(scene.pdf)
+
+
 def delete_image(data: bytes, page: int, xref: int) -> bytes:
     with _Scene(data, page, xref) as scene:
         pl.rewrite_page(scene.pdf, scene.pdf_page, {scene.site.index: []})

@@ -4,6 +4,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdfjs/pdf.worker.min.mj
 
 const state = { fileId: null, revision: 0, page: 0, pageCount: 0, pdf: null };
 const $ = (selector) => document.querySelector(selector);
+const PAGE_SCALE = 1.2; // the scale the page canvas is drawn at, in pixels per point
 
 // Reloads run one after another, so an older render cannot overwrite a newer one.
 let refreshChain = Promise.resolve();
@@ -142,6 +143,7 @@ function renderStrip() {
     thumb.className = `thumb${i === state.page ? " active" : ""}`;
     thumb.draggable = true;
     thumb.append(image, `${i + 1}`);
+    thumb.dataset.index = `${i}`;
     thumb.addEventListener("click", () => run(() => selectPage(i)));
     thumb.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", `${i}`));
     thumb.addEventListener("dragover", (event) => event.preventDefault());
@@ -168,7 +170,7 @@ async function reorder(from, to) {
 
 async function renderPage() {
   const page = await state.pdf.getPage(state.page + 1);
-  const viewport = page.getViewport({ scale: 1.2 });
+  const viewport = page.getViewport({ scale: PAGE_SCALE });
   const canvas = $("#page-canvas");
   canvas.width = viewport.width;
   canvas.height = viewport.height;
@@ -180,6 +182,90 @@ async function renderTools() {
   const [blocks, images] = await Promise.all([api(`${pageUrl}/text`), api(`${pageUrl}/images`)]);
   renderTextBlocks(blocks);
   renderImages(images);
+  renderOverlay(images);
+}
+
+// A box over each image on the page. Drag it within the page to move it, or onto a page
+// thumbnail to move it to that page.
+function renderOverlay(images) {
+  const overlay = $("#image-overlay");
+  overlay.replaceChildren();
+  for (const image of images) {
+    const [x0, y0, x1, y1] = image.bbox;
+    const box = document.createElement("div");
+    box.className = "image-box";
+    box.title = `Image ${image.xref}: drag to move`;
+    Object.assign(box.style, {
+      left: `${x0 * PAGE_SCALE}px`,
+      top: `${y0 * PAGE_SCALE}px`,
+      width: `${(x1 - x0) * PAGE_SCALE}px`,
+      height: `${(y1 - y0) * PAGE_SCALE}px`,
+    });
+    box.addEventListener("pointerdown", (event) => startDrag(event, box, image));
+    overlay.append(box);
+  }
+}
+
+function startDrag(event, box, image) {
+  event.preventDefault();
+  box.setPointerCapture(event.pointerId);
+  const start = { x: event.clientX, y: event.clientY };
+  const pageIndex = state.page;
+
+  const onMove = (moveEvent) => {
+    box.classList.add("dragging");
+    box.style.transform = `translate(${moveEvent.clientX - start.x}px, ${moveEvent.clientY - start.y}px)`;
+    markDropTarget(moveEvent.clientX, moveEvent.clientY);
+  };
+
+  const onEnd = (endEvent) => {
+    box.removeEventListener("pointermove", onMove);
+    box.removeEventListener("pointerup", onEnd);
+    box.removeEventListener("pointercancel", onEnd);
+    box.classList.remove("dragging");
+    box.style.transform = "";
+    clearDropTargets();
+    const dx = endEvent.clientX - start.x;
+    const dy = endEvent.clientY - start.y;
+    const thumb = thumbAt(endEvent.clientX, endEvent.clientY);
+    run(() => dropImage(image, pageIndex, dx, dy, thumb));
+  };
+
+  box.addEventListener("pointermove", onMove);
+  box.addEventListener("pointerup", onEnd);
+  box.addEventListener("pointercancel", onEnd);
+}
+
+async function dropImage(image, pageIndex, dx, dy, thumb) {
+  const targetIndex = thumb ? Number(thumb.dataset.index) : pageIndex;
+  if (targetIndex !== pageIndex) {
+    // Keep the image where it was on the page it moves to.
+    const [x0, y0] = image.bbox;
+    await mutate(`/pages/${pageIndex}/images/${image.xref}/to-page`, { target: targetIndex, x: x0, y: y0 });
+    return;
+  }
+  // Ignore tiny movements, which are clicks rather than drags.
+  if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+  await mutate(`/pages/${pageIndex}/images/${image.xref}`, {
+    op: "move",
+    dx: dx / PAGE_SCALE,
+    dy: dy / PAGE_SCALE,
+  });
+}
+
+function thumbAt(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  return element ? element.closest(".thumb") : null;
+}
+
+function markDropTarget(clientX, clientY) {
+  clearDropTargets();
+  const thumb = thumbAt(clientX, clientY);
+  if (thumb) thumb.classList.add("drop-target");
+}
+
+function clearDropTargets() {
+  for (const thumb of document.querySelectorAll(".thumb.drop-target")) thumb.classList.remove("drop-target");
 }
 
 async function renderHistory() {
