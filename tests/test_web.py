@@ -32,3 +32,22 @@ def test_editor_has_no_external_script_dependencies(storage):
     web = Path(__file__).parent.parent / "src" / "pdfe" / "web"
     sources = [p.read_text() for p in web.glob("*.html")] + [p.read_text() for p in web.glob("*.js")]
     assert not any("http://" in s or "https://" in s for s in sources)
+
+
+def test_page_has_favicon_so_browsers_do_not_request_one(storage):
+    r = TestClient(create_app(storage)).get("/")
+    assert 'rel="icon"' in r.text
+
+
+def test_editor_offers_page_rotate_and_delete(storage):
+    r = TestClient(create_app(storage)).get("/")
+    assert 'id="rotate-left"' in r.text
+    assert 'id="rotate-right"' in r.text
+    assert 'id="delete-page"' in r.text
+
+
+def test_editor_has_undo_and_history(storage):
+    # Fix 4: undo and history are in the UI
+    r = TestClient(create_app(storage)).get("/")
+    assert 'id="undo"' in r.text
+    assert 'id="history-list"' in r.text

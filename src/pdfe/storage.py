@@ -68,6 +68,20 @@ class Storage:
             session.commit()
         return number
 
+    def revision_numbers(self, file_id: str) -> list[int]:
+        with Session(self.engine) as session:
+            return list(
+                session.scalars(
+                    select(Revision.number).where(Revision.file_id == file_id).order_by(Revision.number)
+                )
+            )
+
+    def revision_bytes(self, file_id: str, number: int) -> bytes:
+        path = self._revision_path(file_id, number)
+        if not path.exists():
+            raise KeyError(number)
+        return path.read_bytes()
+
     def latest_number(self, file_id: str) -> int:
         with Session(self.engine) as session:
             return session.scalar(

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PDF Editor</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -13,6 +14,7 @@
     <span id="revision"></span>
     <label class="button">Open PDF <input type="file" id="open-file" accept="application/pdf" hidden></label>
     <button id="new-doc" type="button">New document</button>
+    <button id="undo" type="button" disabled>Undo</button>
     <a id="download" class="button" hidden>Download</a>
   </header>
 
@@ -28,12 +30,24 @@
 
     <aside id="tool-panel" class="tool-panel">
       <section>
+        <h3>This page</h3>
+        <div class="row">
+          <button id="rotate-left" type="button">Rotate left</button>
+          <button id="rotate-right" type="button">Rotate right</button>
+          <button id="delete-page" type="button">Delete page</button>
+        </div>
+      </section>
+      <section>
         <h3>Text blocks</h3>
         <div id="text-blocks"></div>
       </section>
       <section>
         <h3>Images</h3>
         <div id="image-list"></div>
+      </section>
+      <section>
+        <h3>History</h3>
+        <ol id="history-list"></ol>
       </section>
       <section>
         <h3>Add to this page</h3>
@@ -49,7 +63,7 @@
           <button type="submit">Add text box</button>
         </form>
         <form id="add-picture-form">
-          <input name="file" type="file" accept="image/png" required>
+          <input name="file" type="file" accept="image/png,image/gif,image/jpeg,.wpg" required>
           <div class="grid4">
             <input name="x0" type="number" value="72" aria-label="left">
             <input name="y0" type="number" value="150" aria-label="top">

@@ -43,6 +43,10 @@ class TextBody(BaseModel):
     width: float | None = None
 
 
+class RevertBody(BaseModel):
+    revision: int
+
+
 class TextAddBody(BaseModel):
     text: str
     x0: float
@@ -102,7 +106,12 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     @app.get("/api/files/{file_id}/download")
     def download(file_id: str):
         require(file_id)
-        return Response(storage.latest_bytes(file_id), media_type="application/pdf")
+        number = storage.latest_number(file_id)
+        return Response(
+            storage.revision_bytes(file_id, number),
+            media_type="application/pdf",
+            headers={"X-Revision": str(number)},
+        )
 
     @app.get("/api/files/{file_id}/original")
     def original(file_id: str):
@@ -182,7 +191,9 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     @app.post("/api/files/{file_id}/pages/{n}/texts", status_code=201)
     def add_text_box(file_id: str, n: int, body: TextAddBody):
         rect = (body.x0, body.y0, body.x1, body.y1)
-        return edit(file_id, lambda data: add_text(data, n, rect, body.text, body.size))
+        fallback = resolve_font("Helvetica", body.text).fallback
+        result = edit(file_id, lambda data: add_text(data, n, rect, body.text, body.size))
+        return {**result, "fallback": fallback}
 
     @app.post("/api/files/{file_id}/pages/{n}/pictures", status_code=201)
     async def add_picture(
@@ -209,6 +220,34 @@ def create_app(storage: Storage | None = None) -> FastAPI:
 
     @app.post("/api/files/{file_id}/pages/{n}/text/{block_id}", status_code=201)
     def text_edit(file_id: str, n: int, block_id: int, body: TextBody):
-        return edit(file_id, lambda data: replace_block(data, n, block_id, body.text, body.width))
+        require(file_id)
+        report = {}
+
+        def operation(data: bytes) -> bytes:
+            blocks = list_blocks(data, n)
+            if not 0 <= block_id < len(blocks):
+                raise ValueError(f"no text block {block_id} on page {n}")
+            report["fallback"] = resolve_font(blocks[block_id].font, body.text).fallback
+            return replace_block(data, n, block_id, body.text, body.width)
+
+        try:
+            revision = storage.edit(file_id, operation)
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"revision": revision, "fallback": report["fallback"]}
+
+    @app.get("/api/files/{file_id}/revisions")
+    def revisions(file_id: str):
+        require(file_id)
+        return {"latest": storage.latest_number(file_id), "revisions": storage.revision_numbers(file_id)}
+
+    @app.post("/api/files/{file_id}/revert", status_code=201)
+    def revert(file_id: str, body: RevertBody):
+        require(file_id)
+        try:
+            data = storage.revision_bytes(file_id, body.revision)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="no such revision") from exc
+        return {"revision": storage.add_revision(file_id, data)}
 
     return app

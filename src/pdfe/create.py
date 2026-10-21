@@ -1,6 +1,7 @@
 import pymupdf
 
 from pdfe.fonts import resolve_font
+from pdfe.pictures import normalize_picture
 
 PAGE_SIZE = pymupdf.paper_rect("a4")
 
@@ -33,8 +34,11 @@ def add_text(
     choice = resolve_font("Helvetica", text)
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
+        target = pymupdf.Rect(rect)
+        if _text_overlaps(doc[page], target):
+            raise ValueError("that area already has text; choose a clear spot for the new text")
         unused = doc[page].insert_textbox(
-            pymupdf.Rect(rect),
+            target,
             text,
             fontname=choice.fontname,
             fontfile=choice.fontfile,
@@ -51,11 +55,26 @@ def add_image(
     data: bytes,
     page: int,
     rect: tuple[float, float, float, float],
-    png: bytes,
+    picture: bytes,
 ) -> bytes:
+    picture = normalize_picture(picture)
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
-        doc[page].insert_image(pymupdf.Rect(rect), stream=png, keep_proportion=False)
+        doc[page].insert_image(pymupdf.Rect(rect), stream=picture, keep_proportion=False)
         return doc.tobytes()
     finally:
         doc.close()
+
+
+_CLEARANCE = 4  # points; text closer than this to existing text is read back as part of it
+
+
+def _text_overlaps(page: pymupdf.Page, rect: pymupdf.Rect) -> bool:
+    # New text placed over or against existing text would be grouped with it when the page is read back.
+    for block in page.get_text("dict")["blocks"]:
+        if block["type"] != 0:
+            continue
+        clear_area = pymupdf.Rect(block["bbox"]) + (-_CLEARANCE, -_CLEARANCE, _CLEARANCE, _CLEARANCE)
+        if clear_area.intersects(rect):
+            return True
+    return False

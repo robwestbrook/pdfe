@@ -32,7 +32,7 @@ def test_rewrap_breaks_long_text(two_block_pdf):
 
 def test_text_that_does_not_fit_is_refused(two_block_pdf):
     with pytest.raises(ValueError):
-        replace_block(two_block_pdf, 0, block_id=0, new_text="word " * 200)
+        replace_block(two_block_pdf, 0, block_id=0, new_text="word " * 2000)
 
 
 def test_text_routes_list_then_edit(storage, two_block_pdf):
@@ -50,3 +50,23 @@ def test_text_routes_list_then_edit(storage, two_block_pdf):
     assert r.status_code == 201
     texts = [b["text"] for b in client.get(f"/api/files/{fid}/pages/0/text").json()]
     assert any("changed words" in t for t in texts)
+
+
+def test_block_grows_downward_into_free_space(two_block_pdf):
+    # Fix 2: a longer paragraph extends down into free space, and nothing is cut off
+    out = replace_block(two_block_pdf, 0, block_id=0, new_text="word " * 120, width=300)
+    grown = next(b for b in list_blocks(out, 0) if "word" in b.text)
+    before = next(b for b in list_blocks(two_block_pdf, 0) if "word" in b.text)
+    assert grown.bbox[3] > before.bbox[3]
+    assert grown.text.split().count("word") == 120  # nothing cut off
+    assert other_text_unchanged(two_block_pdf, out)
+
+
+def test_growth_stops_before_the_next_block(two_block_pdf):
+    # Fix 2: a block may not grow into the footer below it
+    with pytest.raises(ValueError):
+        replace_block(two_block_pdf, 0, block_id=0, new_text="word " * 600, width=300)
+
+
+def other_text_unchanged(before: bytes, after: bytes) -> bool:
+    return block_texts_without(before, 0, marker="word") == block_texts_without(after, 0, marker="word")

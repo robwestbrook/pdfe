@@ -287,6 +287,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+    { name = "wand" },
 ]
 
 [package.dev-dependencies]
@@ -305,6 +306,7 @@ requires-dist = [
     { name = "python-multipart" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+    { name = "wand", specifier = ">=0.7.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -841,4 +843,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz", hash = "sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620", size = 112283, upload-time = "2026-09-25T06:52:37.601Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
+]
+
+[[package]]
+name = "wand"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/27/98de4383d028df318b9dd56e7ac2a8437684db18c2da7204c084f37e8f95/wand-0.7.2.tar.gz", hash = "sha256:0387fd08848d00cadd1d885fcb19a17dd4250df2029e5338b6b668b7fed64b5b", size = 11889993, upload-time = "2026-06-25T13:48:31.512Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/11/764bee6e793c01d6ce7b99f4872f9fd5ef89904b172cb9d8a0a1dae02f21/wand-0.7.2-py3-none-any.whl", hash = "sha256:7db97c5e51862fdd5e58866dbf34e2dcae295245511147367690a3e17f459984", size = 145045, upload-time = "2026-06-25T13:48:38.348Z" },
 ]

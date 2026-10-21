@@ -16,6 +16,7 @@ A local web app for editing and creating PDFs. A Python FastAPI server stores fi
 - Text editing leaves text outside the edited block unchanged.
 - PDF editing uses PyMuPDF (`fitz`). Page reorder, delete, rotate, and merge use pypdf.
 - Uploaded files and the SQLite database live under `data/`, which is git-ignored.
+- WordPerfect pictures need ImageMagick installed on the system (Wand loads its library). Without it, those uploads are refused with a message; the other formats do not need it.
 
 ## Where things live
 

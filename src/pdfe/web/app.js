@@ -1,10 +1,12 @@
 import * as pdfjsLib from "/static/vendor/pdfjs/pdf.min.mjs";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "/static/vendor/pdfjs/pdf.worker.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/static/vendor/pdfjs/pdf.worker.min.mjs";
 
 const state = { fileId: null, revision: 0, page: 0, pageCount: 0, pdf: null };
 const $ = (selector) => document.querySelector(selector);
+
+// Reloads run one after another, so an older render cannot overwrite a newer one.
+let refreshChain = Promise.resolve();
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -25,17 +27,30 @@ function clearError() {
   $("#error").hidden = true;
 }
 
-function fileUrl(suffix = "") {
-  return `/api/files/${state.fileId}${suffix}`;
+function showFontNotice(message) {
+  const banner = $("#font-banner");
+  banner.textContent = message;
+  banner.hidden = !message;
 }
 
 async function run(action) {
   clearError();
   try {
-    await action();
+    return await action();
   } catch (error) {
     showError(error);
+    return undefined;
   }
+}
+
+function fileUrl(suffix = "") {
+  return `/api/files/${state.fileId}${suffix}`;
+}
+
+function refresh() {
+  const next = refreshChain.then(reload);
+  refreshChain = next.catch(() => {});
+  return next;
 }
 
 async function openFile(fileId) {
@@ -46,18 +61,21 @@ async function openFile(fileId) {
   $("#download").href = fileUrl("/download");
   $("#download").hidden = false;
   state.page = 0;
-  await reload();
+  await refresh();
 }
 
 async function reload() {
-  const bytes = await (await fetch(fileUrl("/download"))).arrayBuffer();
-  state.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const response = await fetch(fileUrl("/download"));
+  state.revision = Number(response.headers.get("X-Revision"));
+  state.pdf = await pdfjsLib.getDocument({ data: await response.arrayBuffer() }).promise;
   state.pageCount = state.pdf.numPages;
   if (state.page >= state.pageCount) state.page = 0;
-  $("#revision").textContent = `revision ${state.revision}`;
   await renderStrip();
   await renderPage();
   await renderTools();
+  await renderHistory();
+  // The label changes last, so it never shows a revision whose panels are not drawn yet.
+  $("#revision").textContent = `revision ${state.revision}`;
 }
 
 async function mutate(suffix, body) {
@@ -67,13 +85,25 @@ async function mutate(suffix, body) {
     body: JSON.stringify(body),
   });
   state.revision = result.revision;
-  await reload();
+  await refresh();
+  return result;
 }
 
 async function mutateForm(suffix, form) {
   const result = await api(fileUrl(suffix), { method: "POST", body: form });
   state.revision = result.revision;
-  await reload();
+  await refresh();
+  return result;
+}
+
+async function revertTo(revision) {
+  const result = await api(fileUrl("/revert"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ revision }),
+  });
+  state.revision = result.revision;
+  await refresh();
 }
 
 async function renderStrip() {
@@ -105,7 +135,7 @@ async function renderStrip() {
 
 async function selectPage(index) {
   state.page = index;
-  await reload();
+  await refresh();
 }
 
 async function reorder(from, to) {
@@ -126,12 +156,27 @@ async function renderPage() {
 
 async function renderTools() {
   const pageUrl = fileUrl(`/pages/${state.page}`);
-  const [blocks, images] = await Promise.all([
-    api(`${pageUrl}/text`),
-    api(`${pageUrl}/images`),
-  ]);
+  const [blocks, images] = await Promise.all([api(`${pageUrl}/text`), api(`${pageUrl}/images`)]);
   renderTextBlocks(blocks);
   renderImages(images);
+}
+
+async function renderHistory() {
+  const info = await api(fileUrl("/revisions"));
+  $("#undo").disabled = info.latest <= 1;
+  const list = $("#history-list");
+  list.replaceChildren();
+  for (const number of [...info.revisions].reverse()) {
+    const item = document.createElement("li");
+    item.append(number === info.latest ? `Revision ${number} (current)` : `Revision ${number} `);
+    if (number !== info.latest) {
+      const restore = document.createElement("button");
+      restore.textContent = "Restore";
+      restore.addEventListener("click", () => run(() => revertTo(number)));
+      item.append(restore);
+    }
+    list.append(item);
+  }
 }
 
 function renderTextBlocks(blocks) {
@@ -152,12 +197,13 @@ function renderTextBlocks(blocks) {
     const save = document.createElement("button");
     save.textContent = "Save";
     save.addEventListener("click", () =>
-      run(() =>
-        mutate(`/pages/${state.page}/text/${block.id}`, {
+      run(async () => {
+        const result = await mutate(`/pages/${state.page}/text/${block.id}`, {
           text: textarea.value,
           width: width.value === "" ? null : Number(width.value),
-        }),
-      ),
+        });
+        showFontNotice(result.fallback ? "Saved. Some text used a substitute font, not the original." : "");
+      }),
     );
     row.append(width, save);
     wrap.append(textarea, row);
@@ -168,11 +214,9 @@ function renderTextBlocks(blocks) {
 async function checkFont(font, text) {
   const params = new URLSearchParams({ font, text });
   const result = await api(`/api/fonts/check?${params}`);
-  const banner = $("#font-banner");
-  banner.textContent = result.fallback
-    ? `Some text will use a substitute font (${result.fontname}), not the original.`
-    : "";
-  banner.hidden = !result.fallback;
+  showFontNotice(
+    result.fallback ? `This text will use a substitute font (${result.fontname}), not the original.` : "",
+  );
 }
 
 function renderImages(images) {
@@ -222,7 +266,7 @@ function renderImages(images) {
     );
     const replace = document.createElement("input");
     replace.type = "file";
-    replace.accept = "image/png";
+    replace.accept = "image/png,image/gif,image/jpeg,.wpg";
     replace.addEventListener("change", () => {
       const form = new FormData();
       form.append("file", replace.files[0]);
@@ -265,20 +309,36 @@ function wireControls() {
     }),
   );
 
+  $("#undo").addEventListener("click", () => run(() => revertTo(state.revision - 1)));
+
   $("#add-page").addEventListener("click", () => run(() => mutate("/pages", {})));
+
+  $("#rotate-left").addEventListener("click", () =>
+    run(() => mutate("/pages/rotate", { index: state.page, degrees: 270 })),
+  );
+
+  $("#rotate-right").addEventListener("click", () =>
+    run(() => mutate("/pages/rotate", { index: state.page, degrees: 90 })),
+  );
+
+  $("#delete-page").addEventListener("click", () => {
+    if (!confirm(`Delete page ${state.page + 1}? This creates a new revision; earlier ones are kept.`)) return;
+    run(() => mutate("/pages/delete", { indexes: [state.page] }));
+  });
 
   $("#add-text-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
-    run(() =>
-      mutate(`/pages/${state.page}/texts`, {
+    run(async () => {
+      const result = await mutate(`/pages/${state.page}/texts`, {
         text: form.text.value,
         x0: Number(form.x0.value),
         y0: Number(form.y0.value),
         x1: Number(form.x1.value),
         y1: Number(form.y1.value),
-      }),
-    );
+      });
+      showFontNotice(result.fallback ? "Added. Some text used a substitute font, not the original." : "");
+    });
   });
 
   $("#add-picture-form").addEventListener("submit", (event) => {

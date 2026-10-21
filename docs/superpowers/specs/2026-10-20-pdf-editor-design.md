@@ -56,6 +56,10 @@ Decisions I made (my calls, which the owner can change):
 - **Storage:** files on local disk under a data directory, named by UUID. Originals are never modified. Each save creates a new revision.
 - **Text editing method:** find the existing text block, cover it with a white rectangle, and write the replacement text with `insert_textbox` at the same position. Line-break fixes rewrap the block to a set width.
 - **Fonts:** use the font named in the original PDF when PyMuPDF can load it. Otherwise fall back to a bundled base font, and show the owner which fallback was used.
+- **Pictures:** PNG, GIF, and JPEG are embedded as they are. WordPerfect graphics are converted to PNG with Wand, which needs ImageMagick installed on the machine.
+- **Text growth:** a rewritten block extends downward into free space, up to the next block below it or the bottom margin. Text that still does not fit is refused.
+- **New text:** text may not overlap or come within 4 pt of existing text, so it is never read back as part of that block.
+- **Undo and history:** every save is a revision. Undo and Restore create a new revision with an older revision's bytes, so no history is lost.
 
 ## Parts
 
