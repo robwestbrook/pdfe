@@ -1,7 +1,7 @@
-import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs";
+import * as pdfjsLib from "/static/vendor/pdfjs/pdf.min.mjs";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+  "/static/vendor/pdfjs/pdf.worker.min.mjs";
 
 const state = { fileId: null, revision: 0, page: 0, pageCount: 0, pdf: null };
 const $ = (selector) => document.querySelector(selector);
