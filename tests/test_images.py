@@ -200,3 +200,43 @@ def test_move_to_page_route(storage, pdf_with_image):
     assert r.status_code == 201
     assert client.get(f"/api/files/{fid}/pages/1/images").json()[0]["bbox"][0] - 300 < 0.5
     assert client.get(f"/api/files/{fid}/pages/0/images").json() == []
+
+
+def _inline_image_pdf() -> bytes:
+    # A page whose content draws an image inline (BI ... ID ... EI), as many exporters do.
+    from io import BytesIO
+
+    import pikepdf
+    import pymupdf
+
+    doc = pymupdf.open()
+    doc.new_page()
+    pdf = pikepdf.open(BytesIO(doc.tobytes()))
+    pdf.pages[0].Contents = pdf.make_stream(
+        b"q 100 0 0 50 72 100 cm BI /W 2 /H 2 /CS /RGB /BPC 8 ID " + bytes(range(12)) + b" EI Q"
+    )
+    out = BytesIO()
+    pdf.save(out)
+    return out.getvalue()
+
+
+def test_inline_images_are_listed_with_an_id():
+    # Problem: an image drawn inline has no object number; it gets an inline-N id instead
+    img = list_images(_inline_image_pdf(), 0)[0]
+    assert img.key == "inline-0"
+    assert tuple(round(v) for v in img.bbox) == (72, 692, 172, 742)
+
+
+def test_move_an_inline_image():
+    # Problem: inline images could not be moved, so dragging them snapped back
+    from pdfe.images import move_image
+
+    out = move_image(_inline_image_pdf(), 0, "inline-0", dx=40, dy=0)
+    moved = list_images(out, 0)
+    assert len(moved) == 1
+    assert abs(moved[0].bbox[0] - 112) < 0.5
+
+
+def test_named_images_are_keyed_by_object_number(pdf_with_image):
+    img = list_images(pdf_with_image, 0)[0]
+    assert img.key == str(img.xref)

@@ -194,7 +194,7 @@ function renderOverlay(images) {
     const [x0, y0, x1, y1] = image.bbox;
     const box = document.createElement("div");
     box.className = "image-box";
-    box.title = `Image ${image.xref}: drag to move`;
+    box.title = `${imageName(image)}: drag to move`;
     Object.assign(box.style, {
       left: `${x0 * PAGE_SCALE}px`,
       top: `${y0 * PAGE_SCALE}px`,
@@ -204,6 +204,11 @@ function renderOverlay(images) {
     box.addEventListener("pointerdown", (event) => startDrag(event, box, image));
     overlay.append(box);
   }
+}
+
+// Named images show their object number; inline images have none, so they are called by position.
+function imageName(image) {
+  return image.xref ? `Image ${image.xref}` : "Inline image";
 }
 
 function startDrag(event, box, image) {
@@ -241,12 +246,12 @@ async function dropImage(image, pageIndex, dx, dy, thumb) {
   if (targetIndex !== pageIndex) {
     // Keep the image where it was on the page it moves to.
     const [x0, y0] = image.bbox;
-    await mutate(`/pages/${pageIndex}/images/${image.xref}/to-page`, { target: targetIndex, x: x0, y: y0 });
+    await mutate(`/pages/${pageIndex}/images/${image.key}/to-page`, { target: targetIndex, x: x0, y: y0 });
     return;
   }
   // Ignore tiny movements, which are clicks rather than drags.
   if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
-  await mutate(`/pages/${pageIndex}/images/${image.xref}`, {
+  await mutate(`/pages/${pageIndex}/images/${image.key}`, {
     op: "move",
     dx: dx / PAGE_SCALE,
     dy: dy / PAGE_SCALE,
@@ -334,14 +339,14 @@ function renderImages(images) {
     const [x0, y0, x1, y1] = image.bbox.map((n) => Math.round(n));
     const wrap = document.createElement("div");
     wrap.className = "image-item";
-    wrap.append(`Image ${image.xref} at (${x0}, ${y0}), ${x1 - x0} × ${y1 - y0}`);
+    wrap.append(`${imageName(image)} at (${x0}, ${y0}), ${x1 - x0} × ${y1 - y0}`);
 
     const move = inputRow(["dx", "dy"]);
     const moveButton = document.createElement("button");
     moveButton.textContent = "Move";
     moveButton.addEventListener("click", () =>
       run(() =>
-        mutate(`/pages/${state.page}/images/${image.xref}`, {
+        mutate(`/pages/${state.page}/images/${image.key}`, {
           op: "move",
           dx: Number(move.inputs[0].value || 0),
           dy: Number(move.inputs[1].value || 0),
@@ -355,7 +360,7 @@ function renderImages(images) {
     resizeButton.textContent = "Resize";
     resizeButton.addEventListener("click", () =>
       run(() =>
-        mutate(`/pages/${state.page}/images/${image.xref}`, {
+        mutate(`/pages/${state.page}/images/${image.key}`, {
           op: "resize",
           width: Number(size.inputs[0].value),
           height: Number(size.inputs[1].value),
@@ -369,7 +374,7 @@ function renderImages(images) {
     const remove = document.createElement("button");
     remove.textContent = "Delete";
     remove.addEventListener("click", () =>
-      run(() => mutate(`/pages/${state.page}/images/${image.xref}`, { op: "delete" })),
+      run(() => mutate(`/pages/${state.page}/images/${image.key}`, { op: "delete" })),
     );
     const replace = document.createElement("input");
     replace.type = "file";
@@ -377,7 +382,7 @@ function renderImages(images) {
     replace.addEventListener("change", () => {
       const form = new FormData();
       form.append("file", replace.files[0]);
-      run(() => mutateForm(`/pages/${state.page}/images/${image.xref}/replace`, form));
+      run(() => mutateForm(`/pages/${state.page}/images/${image.key}/replace`, form));
     });
     actions.append(remove, replace);
 

@@ -235,30 +235,30 @@ def create_app(storage: Storage | None = None) -> FastAPI:
             found = list_images(storage.latest_bytes(file_id), n)
         except (ValueError, IndexError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return [{"xref": info.xref, "bbox": info.bbox} for info in found]
+        return [{"key": info.key, "xref": info.xref, "bbox": info.bbox} for info in found]
 
-    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}", status_code=201)
-    def image_op(file_id: str, n: int, xref: int, body: ImageOpBody, base: int = Depends(base_revision)):
+    @app.post("/api/files/{file_id}/pages/{n}/images/{image}", status_code=201)
+    def image_op(file_id: str, n: int, image: str, body: ImageOpBody, base: int = Depends(base_revision)):
         if body.op == "move":
-            operation = lambda data: move_image(data, n, xref, body.dx, body.dy)
+            operation = lambda data: move_image(data, n, image, body.dx, body.dy)
         elif body.op == "resize":
             if body.width is None or body.height is None:
                 raise HTTPException(status_code=400, detail="resize needs width and height")
-            operation = lambda data: resize_image(data, n, xref, body.width, body.height)
+            operation = lambda data: resize_image(data, n, image, body.width, body.height)
         else:
-            operation = lambda data: delete_image(data, n, xref)
+            operation = lambda data: delete_image(data, n, image)
         return edit(file_id, operation, base)
 
-    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/to-page", status_code=201)
-    def image_to_page(file_id: str, n: int, xref: int, body: MoveToPageBody, base: int = Depends(base_revision)):
-        return edit(file_id, lambda data: move_image_to_page(data, n, xref, body.target, body.x, body.y), base)
+    @app.post("/api/files/{file_id}/pages/{n}/images/{image}/to-page", status_code=201)
+    def image_to_page(file_id: str, n: int, image: str, body: MoveToPageBody, base: int = Depends(base_revision)):
+        return edit(file_id, lambda data: move_image_to_page(data, n, image, body.target, body.x, body.y), base)
 
-    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/replace", status_code=201)
+    @app.post("/api/files/{file_id}/pages/{n}/images/{image}/replace", status_code=201)
     async def image_replace(
-        file_id: str, n: int, xref: int, file: UploadFile, base: int = Depends(base_revision)
+        file_id: str, n: int, image: str, file: UploadFile, base: int = Depends(base_revision)
     ):
         picture = await _read_limited(file, MAX_PICTURE_BYTES)
-        return edit(file_id, lambda data: replace_image(data, n, xref, picture), base)
+        return edit(file_id, lambda data: replace_image(data, n, image, picture), base)
 
     @app.post("/api/files/{file_id}/pages/{n}/texts", status_code=201)
     def add_text_box(file_id: str, n: int, body: TextAddBody, base: int = Depends(base_revision)):

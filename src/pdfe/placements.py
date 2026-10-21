@@ -2,6 +2,9 @@
 
 Moving, resizing, or deleting an image changes only that image's drawing command.
 Everything else on the page keeps its place in the stacking order.
+
+An image is either a named image (drawn with Do) or an inline image (written into the
+content itself). Both are handled the same way; only the drawing instruction differs.
 """
 
 from dataclasses import dataclass
@@ -16,9 +19,10 @@ _IDENTITY: Matrix = (1, 0, 0, 1, 0, 0)
 
 @dataclass(frozen=True)
 class Site:
-    index: int  # position of the image's Do instruction in the page's content
-    xref: int
-    name: pikepdf.Name  # the image's name in the page's resources
+    index: int  # position of the image's instruction in the page's content
+    ordinal: int  # position among the page's inline images, or -1 for named images
+    xref: int  # object number of a named image, or 0 for an inline image
+    payload: object  # the Do operand (a name) or the inline image instruction itself
     ctm: Matrix  # transform in effect when the image is drawn
 
 
@@ -26,7 +30,12 @@ def image_sites(pdf: pikepdf.Pdf, page: pikepdf.Page) -> list[Site]:
     sites = []
     stack: list[Matrix] = []
     ctm = _IDENTITY
+    inline_count = 0
     for index, instruction in enumerate(pikepdf.parse_content_stream(page)):
+        if isinstance(instruction, pikepdf.ContentStreamInlineImage):
+            sites.append(Site(index, inline_count, 0, instruction, ctm))
+            inline_count += 1
+            continue
         operator = str(instruction.operator)
         if operator == "q":
             stack.append(ctm)
@@ -37,7 +46,7 @@ def image_sites(pdf: pikepdf.Pdf, page: pikepdf.Page) -> list[Site]:
         elif operator == "Do":
             xobject = page.Resources.XObject[instruction.operands[0]]
             if xobject.get("/Subtype") == "/Image":
-                sites.append(Site(index, xobject.objgen[0], instruction.operands[0], ctm))
+                sites.append(Site(index, -1, xobject.objgen[0], instruction.operands[0], ctm))
     return sites
 
 
@@ -52,8 +61,33 @@ def rewrite_page(pdf: pikepdf.Pdf, page: pikepdf.Page, edits: dict[int, list]) -
     page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))
 
 
-def add_xobject(pdf: pikepdf.Pdf, page: pikepdf.Page, xref: int, cm: Matrix) -> None:
-    """Draw the image object xref on top of the page's content, with cm as its transform."""
+def draw_image(payload, cm: Matrix) -> list:
+    """Instructions that draw the image with cm applied first, inside their own q/Q."""
+    if isinstance(payload, pikepdf.Name):
+        drawing = [pikepdf.ContentStreamInstruction([payload], pikepdf.Operator("Do"))]
+    else:
+        drawing = [payload]
+    return [
+        pikepdf.ContentStreamInstruction([], pikepdf.Operator("q")),
+        pikepdf.ContentStreamInstruction(list(cm), pikepdf.Operator("cm")),
+        *drawing,
+        pikepdf.ContentStreamInstruction([], pikepdf.Operator("Q")),
+    ]
+
+
+def add_image_to_page(pdf: pikepdf.Pdf, page: pikepdf.Page, site: Site, cm: Matrix) -> None:
+    """Draw the image from site on top of the page's content, with cm as its transform."""
+    if isinstance(site.payload, pikepdf.Name):
+        name = _add_xobject_resource(pdf, page, site.xref)
+        payload = name
+    else:
+        payload = site.payload
+    instructions = list(pikepdf.parse_content_stream(page))
+    instructions.extend(draw_image(payload, cm))
+    page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))
+
+
+def _add_xobject_resource(pdf: pikepdf.Pdf, page: pikepdf.Page, xref: int) -> pikepdf.Name:
     if "/Resources" not in page.obj:
         page.obj.Resources = pikepdf.Dictionary()
     resources = page.obj.Resources
@@ -64,29 +98,17 @@ def add_xobject(pdf: pikepdf.Pdf, page: pikepdf.Page, xref: int, cm: Matrix) -> 
         number += 1
     name = pikepdf.Name(f"/PdfeImage{number}")
     resources.XObject[name] = pdf.get_object((xref, 0))
-    instructions = list(pikepdf.parse_content_stream(page))
-    instructions.extend(draw_image(name, cm))
-    page.Contents = pdf.make_stream(pikepdf.unparse_content_stream(instructions))
-
-
-def draw_image(name: pikepdf.Name, cm: Matrix) -> list:
-    """Instructions that draw the image name with cm applied first, inside their own q/Q."""
-    return [
-        pikepdf.ContentStreamInstruction([], pikepdf.Operator("q")),
-        pikepdf.ContentStreamInstruction(list(cm), pikepdf.Operator("cm")),
-        pikepdf.ContentStreamInstruction([name], pikepdf.Operator("Do")),
-        pikepdf.ContentStreamInstruction([], pikepdf.Operator("Q")),
-    ]
-
-
-def shifted(ctm: Matrix, dx: float, dy: float) -> Matrix:
-    """The transform of an image drawn at ctm, moved by dx, dy in page user space."""
-    return _mul(ctm, (1, 0, 0, 1, dx, dy))
+    return name
 
 
 def transform_for(site: Site, target: Matrix) -> Matrix:
     """The cm operand that makes the image end up at target, given the transform it is drawn in."""
     return _mul(target, _invert(site.ctm))
+
+
+def shifted(ctm: Matrix, dx: float, dy: float) -> Matrix:
+    """The transform of an image drawn at ctm, moved by dx, dy in page user space."""
+    return _mul(ctm, (1, 0, 0, 1, dx, dy))
 
 
 def unit_square_rect(ctm: Matrix) -> pymupdf.Rect:
