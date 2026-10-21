@@ -44,3 +44,34 @@ def three_page_pdf() -> bytes:
     doc.close()
     return data
 
+
+
+@pytest.fixture
+def png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (40, 20), (200, 30, 30)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _pdf_with_image(png: bytes, rotation: int = 0) -> bytes:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_image(pymupdf.Rect(72, 100, 172, 150), stream=png)
+    page.set_rotation(rotation)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture
+def pdf_with_image(png_bytes) -> bytes:
+    return _pdf_with_image(png_bytes)
+
+
+@pytest.fixture
+def pdf_with_image_rotated_90(png_bytes) -> bytes:
+    return _pdf_with_image(png_bytes, rotation=90)

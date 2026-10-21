@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from pdfe import pages
 from pdfe.db import make_engine
+from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
 from pdfe.storage import Storage, check_pdf
 
 
@@ -21,6 +23,14 @@ class DeleteBody(BaseModel):
 class RotateBody(BaseModel):
     index: int
     degrees: int
+
+
+class ImageOpBody(BaseModel):
+    op: Literal["move", "resize", "delete"]
+    dx: float = 0
+    dy: float = 0
+    width: float | None = None
+    height: float | None = None
 
 
 def create_app(storage: Storage | None = None) -> FastAPI:
@@ -41,7 +51,7 @@ def create_app(storage: Storage | None = None) -> FastAPI:
         require(file_id)
         try:
             data = operation(storage.latest_bytes(file_id))
-        except ValueError as exc:
+        except (ValueError, IndexError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"revision": storage.add_revision(file_id, data)}
 
@@ -94,5 +104,33 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     @app.post("/api/files/{file_id}/pages/rotate", status_code=201)
     def rotate_page(file_id: str, body: RotateBody):
         return edit(file_id, lambda data: pages.rotate_page(data, body.index, body.degrees))
+
+    @app.get("/api/files/{file_id}/pages/{n}/images")
+    def images(file_id: str, n: int):
+        require(file_id)
+        try:
+            found = list_images(storage.latest_bytes(file_id), n)
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [{"xref": info.xref, "bbox": info.bbox} for info in found]
+
+    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}", status_code=201)
+    def image_op(file_id: str, n: int, xref: int, body: ImageOpBody):
+        if body.op == "move":
+            operation = lambda data: move_image(data, n, xref, body.dx, body.dy)  # noqa: E731
+        elif body.op == "resize":
+            if body.width is None or body.height is None:
+                raise HTTPException(status_code=400, detail="resize needs width and height")
+            operation = lambda data: resize_image(  # noqa: E731
+                data, n, xref, body.width, body.height
+            )
+        else:
+            operation = lambda data: delete_image(data, n, xref)  # noqa: E731
+        return edit(file_id, operation)
+
+    @app.post("/api/files/{file_id}/pages/{n}/images/{xref}/replace", status_code=201)
+    async def image_replace(file_id: str, n: int, xref: int, file: UploadFile):
+        png = await file.read()
+        return edit(file_id, lambda data: replace_image(data, n, xref, png))
 
     return app
