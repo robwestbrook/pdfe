@@ -22,3 +22,12 @@ def test_corrupt_upload_rejected_and_nothing_written(storage):
 def test_encrypted_upload_rejected(storage, encrypted_pdf_bytes):
     with pytest.raises(ValueError):
         storage.save_upload(encrypted_pdf_bytes, "locked.pdf")
+
+
+def test_two_saves_get_distinct_revisions(storage, sample_pdf_bytes):
+    from concurrent.futures import ThreadPoolExecutor
+
+    fid = storage.save_upload(sample_pdf_bytes, "a.pdf")
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        numbers = list(pool.map(lambda i: storage.add_revision(fid, f"r{i}".encode()), range(20)))
+    assert sorted(numbers) == list(range(2, 22))
