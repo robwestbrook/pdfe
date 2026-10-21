@@ -4,15 +4,19 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pdfe import pages
 from pdfe.create import add_image, add_page, add_text, new_document
 from pdfe.db import make_engine
+from pdfe.fonts import resolve_font
 from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
 from pdfe.storage import Storage, check_pdf
 from pdfe.text import list_blocks, replace_block
+
+WEB_DIR = Path(__file__).parent / "web"
 
 
 class ReorderBody(BaseModel):
@@ -149,6 +153,17 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     async def image_replace(file_id: str, n: int, xref: int, file: UploadFile):
         png = await file.read()
         return edit(file_id, lambda data: replace_image(data, n, xref, png))
+
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+    @app.get("/")
+    def index():
+        return FileResponse(WEB_DIR / "index.html")
+
+    @app.get("/api/fonts/check")
+    def font_check(font: str, text: str):
+        choice = resolve_font(font, text)
+        return {"fontname": choice.fontname, "fallback": choice.fallback}
 
     @app.post("/api/documents", status_code=201)
     def create_document():
