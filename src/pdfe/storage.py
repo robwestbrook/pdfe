@@ -17,16 +17,12 @@ class Storage:
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
 
+    def get(self, file_id: str) -> FileRecord | None:
+        with Session(self.engine) as session:
+            return session.get(FileRecord, file_id)
+
     def save_upload(self, data: bytes, name: str) -> str:
-        try:
-            doc = pymupdf.open(stream=data, filetype="pdf")
-        except Exception as exc:
-            raise ValueError("not a readable PDF") from exc
-        try:
-            if doc.needs_pass:
-                raise ValueError("encrypted PDFs are not supported")
-        finally:
-            doc.close()
+        check_pdf(data)
 
         file_id = uuid.uuid4().hex
         folder = self.root / "files" / file_id
@@ -44,7 +40,7 @@ class Storage:
         return (self.root / "files" / file_id / "original.pdf").read_bytes()
 
     def latest_bytes(self, file_id: str) -> bytes:
-        number = self._latest_number(file_id)
+        number = self.latest_number(file_id)
         return self._revision_path(file_id, number).read_bytes()
 
     def add_revision(self, file_id: str, data: bytes) -> int:
@@ -59,7 +55,7 @@ class Storage:
                 session.commit()
         return number
 
-    def _latest_number(self, file_id: str) -> int:
+    def latest_number(self, file_id: str) -> int:
         with Session(self.engine) as session:
             return session.scalar(
                 select(func.max(Revision.number)).where(Revision.file_id == file_id)
@@ -71,6 +67,18 @@ class Storage:
     def _lock_for(self, file_id: str) -> threading.Lock:
         with self._locks_guard:
             return self._locks.setdefault(file_id, threading.Lock())
+
+
+def check_pdf(data: bytes) -> None:
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+    except Exception as exc:
+        raise ValueError("not a readable PDF") from exc
+    try:
+        if doc.needs_pass:
+            raise ValueError("encrypted PDFs are not supported")
+    finally:
+        doc.close()
 
 
 def _write_atomic(path: Path, data: bytes) -> None:
