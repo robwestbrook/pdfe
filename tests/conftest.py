@@ -75,3 +75,38 @@ def pdf_with_image(png_bytes) -> bytes:
 @pytest.fixture
 def pdf_with_image_rotated_90(png_bytes) -> bytes:
     return _pdf_with_image(png_bytes, rotation=90)
+
+
+@pytest.fixture
+def three_line_pdf() -> bytes:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for i, line in enumerate(["line one", "line two", "line three"]):
+        page.insert_text((72, 72 + 14 * i), line)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture
+def two_block_pdf() -> bytes:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_textbox(
+        pymupdf.Rect(72, 72, 372, 200), "word " * 60, fontname="helv", fontsize=11
+    )
+    page.insert_text((72, 500), "footer text")
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.fixture
+def pdf_text_over_image(png_bytes) -> bytes:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_image(pymupdf.Rect(72, 100, 172, 150), stream=png_bytes)
+    page.insert_text((80, 130), "over image", fontname="helv", fontsize=11)
+    data = doc.tobytes()
+    doc.close()
+    return data

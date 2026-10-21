@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
@@ -10,6 +11,7 @@ from pdfe import pages
 from pdfe.db import make_engine
 from pdfe.images import delete_image, list_images, move_image, replace_image, resize_image
 from pdfe.storage import Storage, check_pdf
+from pdfe.text import list_blocks, replace_block
 
 
 class ReorderBody(BaseModel):
@@ -23,6 +25,11 @@ class DeleteBody(BaseModel):
 class RotateBody(BaseModel):
     index: int
     degrees: int
+
+
+class TextBody(BaseModel):
+    text: str
+    width: float | None = None
 
 
 class ImageOpBody(BaseModel):
@@ -132,5 +139,18 @@ def create_app(storage: Storage | None = None) -> FastAPI:
     async def image_replace(file_id: str, n: int, xref: int, file: UploadFile):
         png = await file.read()
         return edit(file_id, lambda data: replace_image(data, n, xref, png))
+
+    @app.get("/api/files/{file_id}/pages/{n}/text")
+    def text(file_id: str, n: int):
+        require(file_id)
+        try:
+            blocks = list_blocks(storage.latest_bytes(file_id), n)
+        except (ValueError, IndexError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [asdict(block) for block in blocks]
+
+    @app.post("/api/files/{file_id}/pages/{n}/text/{block_id}", status_code=201)
+    def text_edit(file_id: str, n: int, block_id: int, body: TextBody):
+        return edit(file_id, lambda data: replace_block(data, n, block_id, body.text, body.width))
 
     return app
